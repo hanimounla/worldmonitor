@@ -285,6 +285,19 @@ function buildWingbitsSourceMeta(flight) {
   return {
     source: 'wingbits',
     rawKeys: Object.keys(flight || {}),
+    rawPreview: {
+      operator: flight?.operator || '',
+      operatorName: flight?.operatorName || '',
+      airline: flight?.airline || '',
+      owner: flight?.owner || '',
+      type: flight?.type || '',
+      category: flight?.category || '',
+      aircraftType: flight?.aircraftType || '',
+      aircraftTypeCode: flight?.aircraftTypeCode || flight?.icaoType || flight?.aircraftCode || '',
+      description: flight?.description || flight?.aircraftDescription || '',
+      registration: flight?.registration || flight?.reg || flight?.tail || '',
+      originCountry: flight?.co || flight?.originCountry || '',
+    },
     operatorName: flight?.operator || flight?.operatorName || flight?.airline || flight?.owner || flight?.o || '',
     operatorCode: flight?.operatorCode || flight?.airlineCode || flight?.icaoOperator || flight?.iataOperator || '',
     ownerName: flight?.owner || flight?.ownerName || '',
@@ -328,6 +341,13 @@ function summarizeSourceMeta(sourceMeta = {}) {
   };
 }
 
+function summarizeRawSourcePreview(sourceMeta = {}) {
+  const preview = sourceMeta.rawPreview || {};
+  return Object.fromEntries(
+    Object.entries(preview).filter(([, value]) => Boolean(value)),
+  );
+}
+
 const SOURCE_META_FIELDS = [
   'operatorName',
   'operatorCode',
@@ -362,13 +382,26 @@ function createClassificationStageCounters() {
       commercialHint: 0,
     },
     sourceRawKeyCounts: {},
+    rawKeyOnlyCandidates: 0,
+    rawKeyOnlySamples: [],
+    sourceShapeSamples: [],
   };
 }
 
-function recordSourceCoverage(stageCounters, sourceMeta = {}, sourceHints = {}, sourceOperator = null, sourceType = 'unknown') {
+function recordSourceCoverage(stageCounters, sourceMeta = {}, sourceHints = {}, sourceOperator = null, sourceType = 'unknown', callsign = '') {
   const summary = summarizeSourceMeta(sourceMeta);
+  const rawPreview = summarizeRawSourcePreview(sourceMeta);
   if (hasMeaningfulSourceMeta(sourceMeta)) {
     stageCounters.sourceMetaAttached += 1;
+  }
+  if ((sourceMeta.rawKeys || []).length > 0 && !hasMeaningfulSourceMeta(sourceMeta)) {
+    stageCounters.rawKeyOnlyCandidates += 1;
+    if (stageCounters.rawKeyOnlySamples.length < 5) {
+      stageCounters.rawKeyOnlySamples.push({
+        callsign,
+        rawKeys: [...(sourceMeta.rawKeys || [])].slice(0, 20).sort(),
+      });
+    }
   }
   for (const field of SOURCE_META_FIELDS) {
     if (summary[field]) stageCounters.sourceFieldCoverage[field] += 1;
@@ -381,6 +414,14 @@ function recordSourceCoverage(stageCounters, sourceMeta = {}, sourceHints = {}, 
   for (const rawKey of sourceMeta.rawKeys || []) {
     if (!rawKey) continue;
     stageCounters.sourceRawKeyCounts[rawKey] = (stageCounters.sourceRawKeyCounts[rawKey] || 0) + 1;
+  }
+  if (stageCounters.sourceShapeSamples.length < 5 && ((sourceMeta.rawKeys || []).length > 0 || Object.keys(rawPreview).length > 0)) {
+    stageCounters.sourceShapeSamples.push({
+      callsign,
+      rawKeys: [...(sourceMeta.rawKeys || [])].slice(0, 20).sort(),
+      normalized: summary,
+      rawPreview,
+    });
   }
 }
 
@@ -784,10 +825,13 @@ function summarizeClassificationAudit(rawStates, flights, rejected, stageCounter
       commercialHint: stageCounters.sourceHintCounts.commercialHint,
       sourceOperatorCandidateHits: stageCounters.sourceOperatorCandidateHits,
       sourceTypeCandidateHits: stageCounters.sourceTypeCandidateHits,
+      rawKeyOnlyCandidates: stageCounters.rawKeyOnlyCandidates,
       topRawKeys: Object.entries(stageCounters.sourceRawKeyCounts)
         .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
         .slice(0, 10)
         .map(([key, count]) => ({ key, count })),
+      rawKeyOnlySamples: stageCounters.rawKeyOnlySamples,
+      sourceShapeSamples: stageCounters.sourceShapeSamples,
     },
     samples: {
       accepted: flights.slice(0, 8).map((flight) => ({
@@ -946,7 +990,7 @@ function filterMilitaryFlights(allStates) {
     const sourceHints = deriveSourceHints(sourceMeta);
     const sourceOperator = deriveOperatorFromSourceMeta(sourceMeta);
     const sourceType = detectAircraftTypeFromSourceMeta(sourceMeta);
-    recordSourceCoverage(stageCounters, sourceMeta, sourceHints, sourceOperator, sourceType);
+    recordSourceCoverage(stageCounters, sourceMeta, sourceHints, sourceOperator, sourceType, callsign);
     if (callsign) stageCounters.callsignPresent += 1;
     const csMatch = callsign ? identifyByCallsign(callsign, originCountry) : null;
     const commercialMatch = callsign ? identifyCommercialCallsign(callsign) : null;
@@ -1089,6 +1133,9 @@ async function main() {
       );
       console.log(
         `  [Audit] source attached=${classificationAudit.stageWaterfall.sourceMetaAttached} operatorHits=${classificationAudit.sourceCoverage.sourceOperatorCandidateHits} typeHits=${classificationAudit.sourceCoverage.sourceTypeCandidateHits} topKeys=${classificationAudit.sourceCoverage.topRawKeys.map((item) => `${item.key}:${item.count}`).join(',') || 'none'}`,
+      );
+      console.log(
+        `  [Audit] rawKeyOnly=${classificationAudit.sourceCoverage.rawKeyOnlyCandidates} samples=${classificationAudit.sourceCoverage.rawKeyOnlySamples.length} sourceShapeSamples=${classificationAudit.sourceCoverage.sourceShapeSamples.length}`,
       );
     }
   } catch (err) {
