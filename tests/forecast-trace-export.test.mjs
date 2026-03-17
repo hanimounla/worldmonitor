@@ -446,4 +446,46 @@ describe('forecast run world state', () => {
     assert.ok(worldState.reportContinuity.repeatedStrengtheningCount >= 1);
     assert.ok(Array.isArray(worldState.report.continuityWatchlist));
   });
+
+  it('matches report continuity when historical situation ids drift from cluster expansion', () => {
+    const a = makePrediction('conflict', 'Iran', 'Escalation risk: Iran', 0.74, 0.64, '7d', [
+      { type: 'cii', value: 'Iran CII 79 (high)', weight: 0.4 },
+    ]);
+    a.newsContext = ['Regional officials warn of retaliation risk'];
+    buildForecastCase(a);
+
+    const priorState = buildForecastRunWorldState({
+      generatedAt: Date.parse('2026-03-17T10:00:00Z'),
+      predictions: [a],
+    });
+
+    const expandedPrediction = structuredClone(a);
+    expandedPrediction.caseFile = structuredClone(a.caseFile);
+    expandedPrediction.caseFile.actors = [
+      {
+        id: 'aaa-new-actor:state',
+        name: 'AAA New Actor',
+        category: 'state',
+        influenceScore: 0.7,
+        domains: ['conflict'],
+        regions: ['Iran'],
+        role: 'AAA New Actor is a primary state actor.',
+        objectives: ['Shape the conflict path.'],
+        constraints: ['Public escalation is costly.'],
+        likelyActions: ['Increase visible coordination.'],
+      },
+      ...(expandedPrediction.caseFile.actors || []),
+    ];
+
+    const worldState = buildForecastRunWorldState({
+      generatedAt: Date.parse('2026-03-17T11:00:00Z'),
+      predictions: [expandedPrediction],
+      priorWorldState: priorState,
+      priorWorldStates: [priorState],
+    });
+
+    assert.equal(worldState.reportContinuity.emergingPressureCount, 0);
+    assert.equal(worldState.reportContinuity.fadingPressureCount, 0);
+    assert.ok(worldState.reportContinuity.persistentPressureCount >= 1);
+  });
 });

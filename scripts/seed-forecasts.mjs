@@ -2498,29 +2498,41 @@ function summarizeWorldStateHistory(priorWorldStates = []) {
 
 function buildReportContinuity(worldState, priorWorldStates = []) {
   const history = summarizeWorldStateHistory(priorWorldStates);
-  const priorSituationStates = priorWorldStates
-    .filter(Boolean)
-    .flatMap((state) => Array.isArray(state.situationClusters) ? state.situationClusters.map((cluster) => ({
-      id: cluster.id,
-      label: cluster.label,
-      generatedAt: state.generatedAt || 0,
-      avgProbability: Number(cluster.avgProbability || 0),
-      forecastCount: Number(cluster.forecastCount || 0),
-    })) : []);
-  const priorSituationMap = new Map();
-  for (const situation of priorSituationStates) {
-    const list = priorSituationMap.get(situation.id) || [];
-    list.push(situation);
-    priorSituationMap.set(situation.id, list);
-  }
 
   const persistentPressures = [];
   const emergingPressures = [];
   const fadingPressures = [];
   const repeatedStrengthening = [];
+  const matchedLatestPriorIds = new Set();
 
   for (const cluster of worldState.situationClusters || []) {
-    const priorMatches = priorSituationMap.get(cluster.id) || [];
+    const priorMatches = [];
+    for (const state of priorWorldStates.filter(Boolean)) {
+      const candidates = Array.isArray(state.situationClusters) ? state.situationClusters : [];
+      let match = candidates.find((item) => item.id === cluster.id) || null;
+      if (!match) {
+        let bestMatch = null;
+        let bestScore = 0;
+        for (const candidate of candidates) {
+          const score = computeSituationSimilarity(cluster, candidate);
+          if (score > bestScore) {
+            bestScore = score;
+            bestMatch = candidate;
+          }
+        }
+        if (bestMatch && bestScore >= 4) match = bestMatch;
+      }
+      if (!match) continue;
+      priorMatches.push({
+        id: match.id,
+        label: match.label,
+        generatedAt: state.generatedAt || 0,
+        avgProbability: Number(match.avgProbability || 0),
+        forecastCount: Number(match.forecastCount || 0),
+      });
+      if (state === priorWorldStates[0]) matchedLatestPriorIds.add(match.id);
+    }
+
     if (priorMatches.length === 0) {
       emergingPressures.push({
         id: cluster.id,
@@ -2556,10 +2568,9 @@ function buildReportContinuity(worldState, priorWorldStates = []) {
     }
   }
 
-  const currentSituationIds = new Set((worldState.situationClusters || []).map((cluster) => cluster.id));
   const latestPriorState = priorWorldStates[0] || null;
   for (const cluster of latestPriorState?.situationClusters || []) {
-    if (currentSituationIds.has(cluster.id)) continue;
+    if (matchedLatestPriorIds.has(cluster.id)) continue;
     fadingPressures.push({
       id: cluster.id,
       label: cluster.label,
