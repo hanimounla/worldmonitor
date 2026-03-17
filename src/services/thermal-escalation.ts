@@ -107,18 +107,19 @@ interface HydratedThermalData {
 export async function fetchThermalEscalations(maxItems = 12): Promise<ThermalEscalationWatch> {
   const hydrated = getHydratedData('thermalEscalation') as HydratedThermalData | undefined;
   if (hydrated?.clusters?.length) {
+    const sliced = (hydrated.clusters ?? []).slice(0, maxItems).map(toCluster);
     return {
       fetchedAt: hydrated.fetchedAt ? new Date(hydrated.fetchedAt) : new Date(0),
       observationWindowHours: hydrated.observationWindowHours ?? 24,
       sourceVersion: hydrated.sourceVersion || 'thermal-escalation-v1',
-      clusters: (hydrated.clusters ?? []).slice(0, maxItems).map(toCluster),
+      clusters: sliced,
       summary: {
-        clusterCount: hydrated.summary?.clusterCount ?? 0,
-        elevatedCount: hydrated.summary?.elevatedCount ?? 0,
-        spikeCount: hydrated.summary?.spikeCount ?? 0,
-        persistentCount: hydrated.summary?.persistentCount ?? 0,
-        conflictAdjacentCount: hydrated.summary?.conflictAdjacentCount ?? 0,
-        highRelevanceCount: hydrated.summary?.highRelevanceCount ?? 0,
+        clusterCount: sliced.length,
+        elevatedCount: sliced.filter(c => c.status === 'elevated').length,
+        spikeCount: sliced.filter(c => c.status === 'spike').length,
+        persistentCount: sliced.filter(c => c.status === 'persistent').length,
+        conflictAdjacentCount: sliced.filter(c => c.context === 'conflict_adjacent').length,
+        highRelevanceCount: sliced.filter(c => c.strategicRelevance === 'high').length,
       },
     };
   }
