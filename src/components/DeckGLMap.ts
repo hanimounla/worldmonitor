@@ -3399,7 +3399,7 @@ export class DeckGLMap {
       case 'irradiators-layer':
         return { html: `<div class="deckgl-tooltip"><strong>${text(obj.name)}</strong><br/>${text(obj.type || t('components.deckgl.layers.gammaIrradiators'))}</div>` };
       case 'radiation-watch-layer': {
-        const severityLabel = obj.severity === 'spike' ? 'Radiation spike' : 'Elevated radiation';
+        const severityLabel = obj.severity === 'spike' ? t('components.deckgl.layers.radiationSpike') : t('components.deckgl.layers.radiationElevated');
         const delta = Number(obj.delta || 0);
         const confidence = String(obj.confidence || 'low').toUpperCase();
         const corroboration = obj.corroborated ? 'CONFIRMED' : obj.conflictingSources ? 'CONFLICTING' : confidence;
