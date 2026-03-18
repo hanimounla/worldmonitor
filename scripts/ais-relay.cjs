@@ -1264,11 +1264,16 @@ const MARKET_SYMBOLS = [
   '^DJI', '^GSPC', '^IXIC',
 ];
 
-const COMMODITY_SYMBOLS = ['^VIX', 'GC=F', 'CL=F', 'NG=F', 'SI=F', 'HG=F'];
+const COMMODITY_SYMBOLS = [
+  '^VIX',
+  'GC=F', 'SI=F', 'HG=F', 'PL=F', 'PA=F', 'ALI=F',
+  'CL=F', 'BZ=F', 'NG=F', 'RB=F', 'HO=F',
+  'URA', 'LIT',
+];
 
 const SECTOR_SYMBOLS = ['XLK', 'XLF', 'XLE', 'XLV', 'XLY', 'XLI', 'XLP', 'XLU', 'XLB', 'XLRE', 'XLC', 'SMH'];
 
-const YAHOO_ONLY = new Set(['^GSPC', '^DJI', '^IXIC', '^VIX', 'GC=F', 'CL=F', 'NG=F', 'SI=F', 'HG=F']);
+const YAHOO_ONLY = new Set(['^GSPC', '^DJI', '^IXIC', '^VIX', 'GC=F', 'CL=F', 'NG=F', 'SI=F', 'HG=F', 'PL=F', 'PA=F', 'ALI=F', 'BZ=F', 'RB=F', 'HO=F', 'URA', 'LIT']);
 
 function fetchYahooChartDirect(symbol) {
   return new Promise((resolve) => {
