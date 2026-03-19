@@ -26,15 +26,7 @@ jobs:
             # API unavailable — skip labeling entirely
             echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
           else
-            VERDICT=$(echo "$RESPONSE" | python3 -c "
-import sys, json
-try:
-    d = json.load(sys.stdin)
-    v = d.get('verdict', '')
-    print(v if v in ('safe', 'caution', 'suspicious', 'dangerous') else 'unavailable')
-except Exception:
-    print('unavailable')
-")
+            VERDICT=$(echo "$RESPONSE" | python3 -c "import sys,json; d=json.load(sys.stdin); v=d.get('verdict',''); print(v if v in ('safe','caution','suspicious','dangerous') else 'unavailable')" 2>/dev/null || echo "unavailable")
             echo "verdict=$VERDICT" >> "$GITHUB_OUTPUT"
           fi
 
