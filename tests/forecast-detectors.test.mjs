@@ -50,6 +50,7 @@ import {
   scoreForecastReadiness,
   computeAnalysisPriority,
   rankForecastsForAnalysis,
+  selectPublishedForecastPool,
   filterPublishedForecasts,
   applySituationFamilyCaps,
   selectForecastsForEnrichment,
@@ -2004,6 +2005,50 @@ describe('forecast quality gating', () => {
     const telemetry = summarizePublishFiltering(preds);
     assert.equal(telemetry.suppressedSituationFamilyCap, 1);
     assert.equal(telemetry.cappedFamilies, 1);
+  });
+
+  it('preselects published forecasts across families before overlap suppression', () => {
+    const preds = [
+      makePrediction('conflict', 'Iran', 'Escalation risk: Iran', 0.72, 0.65, '7d', [{ type: 'ucdp', value: 'Iran events elevated', weight: 0.4 }]),
+      makePrediction('political', 'Iran', 'Political instability: Iran', 0.58, 0.59, '14d', [{ type: 'news_corroboration', value: 'Emergency meetings continue', weight: 0.35 }]),
+      makePrediction('market', 'Middle East', 'Oil repricing risk: Gulf', 0.55, 0.57, '30d', [{ type: 'prediction_market', value: 'Oil reprices higher', weight: 0.3 }]),
+      makePrediction('supply_chain', 'Persian Gulf', 'Shipping disruption: Persian Gulf', 0.53, 0.56, '14d', [{ type: 'chokepoint', value: 'Routing delays persist', weight: 0.35 }]),
+      makePrediction('conflict', 'Ukraine', 'Escalation risk: Ukraine', 0.64, 0.61, '7d', [{ type: 'ucdp', value: 'Ukraine conflict remains active', weight: 0.42 }]),
+      makePrediction('market', 'Black Sea', 'Grain pricing pressure: Black Sea', 0.5, 0.54, '30d', [{ type: 'prediction_market', value: 'Grain risk premium widens', weight: 0.28 }]),
+    ];
+
+    buildForecastCases(preds);
+    for (const [index, pred] of preds.entries()) {
+      pred.traceMeta = { narrativeSource: index < 2 ? 'llm_combined' : 'fallback' };
+      pred.readiness = { overall: 0.7 - (index * 0.04) };
+      pred.analysisPriority = 0.24 - (index * 0.02);
+    }
+
+    const familyA = { id: 'fam-middle-east', label: 'Middle East pressure family', forecastCount: 4, situationCount: 4, situationIds: ['sit-iran-conflict', 'sit-iran-political', 'sit-gulf-market', 'sit-gulf-shipping'] };
+    const familyB = { id: 'fam-black-sea', label: 'Black Sea pressure family', forecastCount: 2, situationCount: 2, situationIds: ['sit-ukraine-conflict', 'sit-blacksea-market'] };
+    const contexts = [
+      ['sit-iran-conflict', 'Iran conflict situation', familyA],
+      ['sit-iran-political', 'Iran political situation', familyA],
+      ['sit-gulf-market', 'Gulf market situation', familyA],
+      ['sit-gulf-shipping', 'Persian Gulf shipping situation', familyA],
+      ['sit-ukraine-conflict', 'Ukraine conflict situation', familyB],
+      ['sit-blacksea-market', 'Black Sea market situation', familyB],
+    ];
+    for (const [index, pred] of preds.entries()) {
+      const [id, label, family] = contexts[index];
+      pred.situationContext = { id, label, forecastCount: 1, topSignals: [{ type: 'news_corroboration', count: 1 }] };
+      pred.caseFile.situationContext = pred.situationContext;
+      pred.familyContext = family;
+      pred.caseFile.familyContext = family;
+    }
+
+    const selected = selectPublishedForecastPool(preds);
+    assert.ok(selected.some((pred) => pred.familyContext?.id === familyA.id));
+    assert.ok(selected.some((pred) => pred.familyContext?.id === familyB.id));
+    assert.ok(selected.some((pred) => pred.domain === 'market'));
+
+    const telemetry = summarizePublishFiltering(preds);
+    assert.ok(telemetry.suppressedFamilySelection >= 1);
   });
 
   it('does not report capped situations when a situation only reaches the cap without dropping anything', () => {
