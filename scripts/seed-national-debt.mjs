@@ -135,13 +135,16 @@ function validate(data) {
   return Array.isArray(data?.entries) && data.entries.length >= 100;
 }
 
-runSeed('economic', 'national-debt', CANONICAL_KEY, fetchNationalDebt, {
-  validateFn: validate,
-  ttlSeconds: CACHE_TTL,
-  sourceVersion: 'imf-weo-2024',
-  recordCount: (data) => data?.entries?.length ?? 0,
-}).catch((err) => {
-  const _cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
-  console.error('FATAL:', (err.message || err) + _cause);
-  process.exit(1);
-});
+// Guard: only run seed when executed directly, not when imported by tests
+if (process.argv[1]?.endsWith('seed-national-debt.mjs')) {
+  runSeed('economic', 'national-debt', CANONICAL_KEY, fetchNationalDebt, {
+    validateFn: validate,
+    ttlSeconds: CACHE_TTL,
+    sourceVersion: 'imf-weo-2024',
+    recordCount: (data) => data?.entries?.length ?? 0,
+  }).catch((err) => {
+    const _cause = err.cause ? ` (cause: ${err.cause.message || err.cause.code || err.cause})` : '';
+    console.error('FATAL:', (err.message || err) + _cause);
+    process.exit(1);
+  });
+}
