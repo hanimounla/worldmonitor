@@ -102,4 +102,37 @@ describe('LiveNewsPanel instantiation guard', () => {
       'panel-layout.ts must import loadChannelsFromStorage',
     );
   });
+
+  // -------------------------------------------------------------------------
+  // 4. Mid-session lazy instantiation path
+  //    When a happy-variant user adds channels after page load, the panel
+  //    must be mountable without a full reload.
+  // -------------------------------------------------------------------------
+
+  it('panel-layout.ts exposes mountLiveNewsIfReady() for mid-session instantiation', () => {
+    const layout = src('src/app/panel-layout.ts');
+    assert.ok(
+      layout.includes('mountLiveNewsIfReady'),
+      'panel-layout.ts must expose mountLiveNewsIfReady() so channels added mid-session can trigger panel creation',
+    );
+  });
+
+  it('event-handlers.ts calls mountLiveNewsIfReady when liveChannels changes and panel is missing', () => {
+    const handlers = src('src/app/event-handlers.ts');
+    // The liveChannels branch must have an else clause that calls mountLiveNewsIfReady
+    const liveChannelsBlock = handlers.match(/liveChannels.*?(?=if \(e\.key)/s);
+    assert.ok(liveChannelsBlock, 'liveChannels storage handler not found');
+    assert.ok(
+      handlers.includes('mountLiveNewsIfReady'),
+      'event-handlers.ts must call mountLiveNewsIfReady when liveChannels fires and panel does not exist',
+    );
+  });
+
+  it('App.ts wires mountLiveNewsIfReady callback to panelLayout', () => {
+    const app = src('src/App.ts');
+    assert.ok(
+      app.includes('mountLiveNewsIfReady'),
+      'App.ts must wire mountLiveNewsIfReady callback so EventHandlerManager can trigger lazy panel creation',
+    );
+  });
 });
