@@ -20,6 +20,7 @@ export async function listDefensePatents(
       return { patents: [], total: 0, fetchedAt: '' };
     }
 
+    const total = result.patents.length;
     let patents = result.patents;
 
     if (req.cpcCode) {
@@ -31,7 +32,6 @@ export async function listDefensePatents(
       patents = patents.filter((p) => p.assignee.toLowerCase().includes(kw));
     }
 
-    const total = patents.length;
     const limit = req.limit > 0 ? Math.min(req.limit, MAX_LIMIT) : DEFAULT_LIMIT;
     patents = patents.slice(0, limit);
 

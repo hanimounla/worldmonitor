@@ -30,9 +30,9 @@ const CPC_CATEGORIES = [
 function buildQuery(cpcCode) {
   return JSON.stringify({
     _and: [
-      { _begins: { cpc_subgroup_id: cpcCode } },
+      { _begins: { 'cpc_at_issue.cpc_subclass_id': cpcCode } },
       {
-        _or: DEFENSE_ASSIGNEES.map((a) => ({ _text_phrase: { assignee_organization: a } })),
+        _or: DEFENSE_ASSIGNEES.map((a) => ({ _text_phrase: { 'assignees.assignee_organization': a } })),
       },
     ],
   });
@@ -41,8 +41,9 @@ function buildQuery(cpcCode) {
 async function fetchCategoryPatents(category) {
   const url = new URL(PATENTSVIEW_API);
   url.searchParams.set('q', buildQuery(category.code));
-  url.searchParams.set('f', JSON.stringify(['patent_id', 'patent_title', 'patent_date', 'patent_abstract', 'assignee_organization', 'cpc_subgroup_id']));
-  url.searchParams.set('o', JSON.stringify({ 'per_page': MAX_PER_CATEGORY, 'sort': [{ 'patent_date': 'desc' }] }));
+  url.searchParams.set('f', JSON.stringify(['patent_id', 'patent_title', 'patent_date', 'patent_abstract', 'assignees.assignee_organization', 'cpc_at_issue.cpc_subclass_id']));
+  url.searchParams.set('o', JSON.stringify({ size: MAX_PER_CATEGORY }));
+  url.searchParams.set('s', JSON.stringify([{ patent_date: 'desc' }]));
 
   const resp = await fetch(url.toString(), {
     headers: { 'User-Agent': CHROME_UA, Accept: 'application/json' },
