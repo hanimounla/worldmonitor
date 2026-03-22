@@ -230,6 +230,7 @@ export async function buildOverviewSnapshot(marketCode: string): Promise<WMOverv
         `SELECT metric_value AS spread_pct FROM computed_indices ci
          JOIN baskets b ON b.id = ci.basket_id
          WHERE b.market_code = $1 AND ci.metric_key = 'retailer_spread_pct'
+           AND ci.metric_date >= CURRENT_DATE - INTERVAL '2 days'
          ORDER BY ci.metric_date DESC LIMIT 1`,
         [marketCode],
       ),
