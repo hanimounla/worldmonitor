@@ -23,6 +23,19 @@ const MARKET_NAMES: Record<string, string> = {
   bh: 'Bahrain',
   om: 'Oman',
   eg: 'Egypt',
+  gb: 'UK',
+  us: 'USA',
+  ca: 'Canada',
+  au: 'Australia',
+  de: 'Germany',
+  fr: 'France',
+  nl: 'Netherlands',
+  sg: 'Singapore',
+  in: 'India',
+  pk: 'Pakistan',
+  ng: 'Nigeria',
+  ke: 'Kenya',
+  za: 'South Africa',
 };
 
 /** Packaging/container words that are not product identity tokens. */
@@ -36,15 +49,29 @@ const PACKAGING_WORDS = new Set(['pack', 'box', 'bag', 'container', 'bottle', 'c
  * Catches gross mismatches because category tokens like "tomatoes" differ from "tomato"
  * (stemming gap blocks seed/storage box false positives).
  */
+/** Strip common English plural suffixes for basic stemming. */
+function stem(w: string): string {
+  return w.replace(/ies$/, 'y').replace(/es$/, '').replace(/s$/, '');
+}
+
+/** Non-food product indicator words — reject before token matching. */
+const NON_FOOD_INDICATORS = new Set(['seeds', 'seed', 'seedling', 'seedlings', 'planting', 'fertilizer', 'fertiliser']);
+
 export function isTitlePlausible(canonicalName: string, productName: string | undefined): boolean {
   if (!productName) return false;
+  const titleWords = productName.toLowerCase().split(/\W+/);
+  if (titleWords.some((w) => NON_FOOD_INDICATORS.has(w))) return false;
   const tokens = canonicalName
     .toLowerCase()
     .split(/\W+/)
     .filter((w) => w.length > 2 && !PACKAGING_WORDS.has(w));
   if (tokens.length === 0) return true;
   const extracted = productName.toLowerCase();
-  const matches = tokens.filter((w) => extracted.includes(w));
+  const matches = tokens.filter((w) => {
+    if (extracted.includes(w)) return true;
+    const s = stem(w);
+    return s.length >= 4 && s !== w && extracted.includes(s);
+  });
   return matches.length >= Math.max(1, Math.ceil(tokens.length * 0.4));
 }
 
@@ -122,16 +149,17 @@ export class SearchAdapter implements RetailerAdapter {
       basketSlug: string;
     };
 
-    const marketName = MARKET_NAMES[ctx.config.marketCode] ?? '';
+    const marketName = MARKET_NAMES[ctx.config.marketCode] ?? ctx.config.marketCode.toUpperCase();
     const cfg = ctx.config.searchConfig;
 
     const query = cfg?.queryTemplate
       ? cfg.queryTemplate
           .replace('{canonicalName}', canonicalName)
+          .replace('{category}', target.category)
           .replace('{currency}', currency)
           .replace('{market}', marketName)
           .trim()
-      : `${canonicalName} ${marketName} ${currency}`.trim();
+      : `${canonicalName} grocery ${marketName} ${currency}`.trim();
 
     // Stage 1: Exa URL discovery
     const exaResults = await this.exa.search(query, {
