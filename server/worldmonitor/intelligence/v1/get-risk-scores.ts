@@ -440,9 +440,8 @@ export function computeCIIScores(
     let code: string | null = story.countryCode && data[story.countryCode] ? story.countryCode : null;
     // Fallback: keyword match on title
     if (!code) code = normalizeCountryName(story.primaryTitle);
-    if (code && data[code]) {
-      data[code].newsScore += weight;
-    }
+    const signals = code ? data[code] : undefined;
+    if (signals) signals.newsScore += weight;
   }
 
   // --- Scoring ---
@@ -601,7 +600,7 @@ export async function getRiskScores(
 
   const stale = (await getCachedJson(RISK_STALE_CACHE_KEY)) as GetRiskScoresResponse | null;
   if (stale) return stale;
-  const emptyAux: AuxiliarySources = { ucdpEvents: [], outages: [], climate: [], cyber: [], fires: [], gpsHexes: [], iranEvents: [], orefData: null, advisories: null, displacedByIso3: {} };
+  const emptyAux: AuxiliarySources = { ucdpEvents: [], outages: [], climate: [], cyber: [], fires: [], gpsHexes: [], iranEvents: [], orefData: null, advisories: null, displacedByIso3: {}, newsTopStories: [] };
   const ciiScores = computeCIIScores([], emptyAux);
   return { ciiScores, strategicRisks: computeStrategicRisks(ciiScores) };
 }
