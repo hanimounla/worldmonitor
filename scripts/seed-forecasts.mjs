@@ -3416,7 +3416,6 @@ ${candidatePackets.map((packet) => [
 }
 
 async function extractImpactExpansionBundle({
-  inputs: _inputs = {},
   stateUnits = [],
   worldSignals = null,
   marketTransmission = null,
@@ -9591,7 +9590,7 @@ function evaluateImpactHypothesisRejection(hypothesis, context = {}) {
   if (!registry || !(registry.allowedChannels || []).includes(hypothesis.channel)) return 'unsupported_variable_channel';
 
   const targetBucketAllowed = (registry.targetBuckets || []).includes(hypothesis.targetBucket);
-  const bucketSignalTypes = MARKET_BUCKET_CRITICAL_SIGNAL_TYPES[hypothesis.targetBucket] || [];
+  const bucketSignalTypes = MARKET_BUCKET_ALLOWED_CHANNELS[hypothesis.targetBucket] || [];
   if (!targetBucketAllowed || !bucketSignalTypes.includes(hypothesis.channel)) return 'weak_bucket_coherence';
 
   if (hypothesis.order !== 'direct' && !lowerOrderKeys.has(hypothesis.dependsOnKey)) return 'missing_dependency';
@@ -9634,8 +9633,8 @@ function validateImpactHypotheses(bundle = null) {
     if (!candidate) continue;
     const evidenceKeys = new Set((candidate.evidenceTable || []).map((entry) => entry.key));
     const duplicateKeys = new Set();
-    const directKeys = new Set((items.filter((item) => item.order === 'direct')).map((item) => item.variableKey).filter(Boolean));
-    const secondOrderKeys = new Set((items.filter((item) => item.order === 'second_order')).map((item) => item.variableKey).filter(Boolean));
+    const validatedDirectKeys = new Set();
+    const validatedSecondOrderKeys = new Set();
 
     const ordered = items.slice().sort((left, right) => (
       IMPACT_EXPANSION_ORDERS.indexOf(left.order) - IMPACT_EXPANSION_ORDERS.indexOf(right.order)
@@ -9645,9 +9644,9 @@ function validateImpactHypotheses(bundle = null) {
 
     for (const hypothesis of ordered) {
       const lowerOrderKeys = hypothesis.order === 'second_order'
-        ? directKeys
+        ? validatedDirectKeys
         : hypothesis.order === 'third_order'
-          ? secondOrderKeys
+          ? validatedSecondOrderKeys
           : new Set();
       const rejectionReason = evaluateImpactHypothesisRejection(hypothesis, {
         candidate,
@@ -9701,6 +9700,10 @@ function validateImpactHypotheses(bundle = null) {
       });
 
       duplicateKeys.add(`${hypothesis.order}:${hypothesis.variableKey}:${hypothesis.targetBucket}`);
+      if (validationStatus !== 'rejected' && hypothesis.variableKey) {
+        if (hypothesis.order === 'direct') validatedDirectKeys.add(hypothesis.variableKey);
+        if (hypothesis.order === 'second_order') validatedSecondOrderKeys.add(hypothesis.variableKey);
+      }
     }
   }
 
