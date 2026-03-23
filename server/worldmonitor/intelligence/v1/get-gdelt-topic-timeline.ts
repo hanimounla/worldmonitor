@@ -2,6 +2,7 @@ import type {
   ServerContext,
   GetGdeltTopicTimelineRequest,
   GetGdeltTopicTimelineResponse,
+  GdeltTimelinePoint,
 } from '../../../../src/generated/server/worldmonitor/intelligence/v1/service_server';
 
 import { getCachedJson } from '../../../_shared/redis';
@@ -23,12 +24,12 @@ export async function getGdeltTopicTimeline(
       getCachedJson(`gdelt:intel:vol:${topic}`, true),
     ]);
 
-    const unwrap = (d: unknown): { arr: unknown[]; fetchedAt: string } => {
+    const unwrap = (d: unknown): { arr: GdeltTimelinePoint[]; fetchedAt: string } => {
       if (d && typeof d === 'object' && !Array.isArray(d)) {
         const obj = d as { data?: unknown[]; fetchedAt?: string };
-        return { arr: Array.isArray(obj.data) ? obj.data : [], fetchedAt: obj.fetchedAt ?? '' };
+        return { arr: Array.isArray(obj.data) ? (obj.data as GdeltTimelinePoint[]) : [], fetchedAt: obj.fetchedAt ?? '' };
       }
-      return { arr: Array.isArray(d) ? d : [], fetchedAt: '' };
+      return { arr: Array.isArray(d) ? (d as GdeltTimelinePoint[]) : [], fetchedAt: '' };
     };
 
     const { arr: tone, fetchedAt: toneFetchedAt } = unwrap(toneData);
