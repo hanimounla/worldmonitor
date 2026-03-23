@@ -120,8 +120,8 @@ export function clusterItems(items) {
     });
 
     const primary = sorted[0];
-    // Prefer a threat from any item in the group (digest items may carry AI-classified threat)
-    const threatItem = group.find(i => i.threat?.level && i.threat?.source !== 'keyword');
+    // Prefer highest-tier non-keyword threat; `sorted` is already tier/date ordered so reuse it.
+    const threatItem = sorted.find(i => i.threat?.level && i.threat?.source !== 'keyword');
     return {
       primaryTitle: primary.title,
       primarySource: primary.source,
