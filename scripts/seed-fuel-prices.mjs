@@ -226,19 +226,45 @@ async function fetchUS_EIA() {
   }
 }
 
-// EU Oil Bulletin CSV: EUR per 1000 liters. URL pattern is YYYY-MM/filename — update when EC rotates.
-// Discovery: https://energy.ec.europa.eu/data-and-analysis/weekly-oil-bulletin_en (check "Download" links)
+// EU Oil Bulletin CSV: EUR per 1000 liters. URL rotates monthly — discover dynamically from the EC page.
 function parseEUPrice(raw) {
   if (!raw || raw === '') return null;
   const v = parseFloat(raw.replace(',', '.'));
   return v > 0 ? +(v / 1000).toFixed(4) : null;
 }
 
+async function discoverEU_CSV_URLs() {
+  // Scrape the EC energy page to find the current CSV download link(s).
+  // URL pattern: /system/files/YYYY-MM/filename.csv
+  try {
+    const pageResp = await globalThis.fetch(
+      'https://energy.ec.europa.eu/data-and-analysis/weekly-oil-bulletin_en',
+      { headers: { 'User-Agent': CHROME_UA }, signal: AbortSignal.timeout(15000) }
+    );
+    if (!pageResp.ok) throw new Error(`page HTTP ${pageResp.status}`);
+    const html = await pageResp.text();
+    const matches = [...html.matchAll(/\/system\/files\/\d{4}-\d{2}\/[^"'\s]+\.csv/gi)];
+    const discovered = [...new Set(matches.map(m => `https://energy.ec.europa.eu${m[0]}`))];
+    if (discovered.length) {
+      console.log(`  [EU] Discovered ${discovered.length} CSV URL(s) from EC page`);
+      return discovered;
+    }
+  } catch (err) {
+    console.warn(`  [EU] Page discovery failed: ${err.message} — falling back to known URLs`);
+  }
+  // Fallback: try known patterns for current + previous month
+  const now = new Date();
+  const fallbacks = [];
+  for (let monthOffset = 0; monthOffset <= 3; monthOffset++) {
+    const d = new Date(now.getFullYear(), now.getMonth() - monthOffset, 1);
+    const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    fallbacks.push(`https://energy.ec.europa.eu/system/files/${ym}/weekly_oil_bulletin_prices_history.csv`);
+  }
+  return fallbacks;
+}
+
 async function fetchEU_CSV() {
-  const EU_CSV_URLS = [
-    'https://energy.ec.europa.eu/system/files/2024-10/weekly_oil_bulletin_prices_history.csv',
-    'https://energy.ec.europa.eu/system/files/2024-11/csv_oil_1990_en.csv',
-  ];
+  const EU_CSV_URLS = await discoverEU_CSV_URLs();
 
   for (const csvUrl of EU_CSV_URLS) {
     try {
@@ -401,32 +427,32 @@ async function fetchNewZealand() {
     const lines = text.split('\n').map(l => l.trim()).filter(Boolean);
     if (lines.length < 2) return [];
 
-    // MBIE data uses simple numeric values — no quoted commas in value fields, bare split is safe
+    // MBIE data uses simple numeric values — no quoted commas in value fields, bare split is safe.
+    // Live header (as of 2026): Week,Date,Fuel,Variable,Value,Unit,Status — no Region column.
+    // Values are in NZD c/L (cents per litre) — divide by 100 for NZD/L.
     const header = lines[0].split(',').map(h => h.replace(/^"|"$/g, '').trim().toLowerCase());
     const weekIdx = header.indexOf('week');
     const varIdx = header.indexOf('variable');
     const fuelIdx = header.indexOf('fuel');
     const valIdx = header.indexOf('value');
-    const regionIdx = header.indexOf('region');
-    if ([weekIdx, varIdx, fuelIdx, valIdx, regionIdx].includes(-1)) {
-      console.warn('  [NZ] CSV header missing expected columns');
+    if ([weekIdx, varIdx, fuelIdx, valIdx].includes(-1)) {
+      console.warn('  [NZ] CSV header missing expected columns:', header.join(','));
       return [];
     }
 
     const rows = lines.slice(1).map(l => l.split(',').map(c => c.replace(/^"|"$/g, '').trim()));
-    const national = rows.filter(r =>
-      r[varIdx] === 'Board price' &&
-      r[regionIdx]?.toLowerCase() === 'national'
-    );
-    if (!national.length) return [];
+    // All rows are national averages (no region column); filter to Board price only
+    const boardRows = rows.filter(r => r[varIdx] === 'Board price');
+    if (!boardRows.length) return [];
 
-    const maxWeek = national.map(r => r[weekIdx]).filter(Boolean).sort().at(-1);
-    const latest = national.filter(r => r[weekIdx] === maxWeek);
+    const maxWeek = boardRows.map(r => r[weekIdx]).filter(Boolean).sort().at(-1);
+    const latest = boardRows.filter(r => r[weekIdx] === maxWeek);
 
     const gasRow = latest.find(r => r[fuelIdx] === 'Regular Petrol');
     const dslRow = latest.find(r => r[fuelIdx] === 'Diesel');
-    const gasPrice = gasRow ? parseFloat(gasRow[valIdx]) || null : null;
-    const dslPrice = dslRow ? parseFloat(dslRow[valIdx]) || null : null;
+    // Values are c/L — divide by 100 to get NZD/L
+    const gasPrice = gasRow ? (parseFloat(gasRow[valIdx]) || null) && +(parseFloat(gasRow[valIdx]) / 100).toFixed(4) : null;
+    const dslPrice = dslRow ? (parseFloat(dslRow[valIdx]) || null) && +(parseFloat(dslRow[valIdx]) / 100).toFixed(4) : null;
 
     const dateIdx = header.indexOf('date');
     const obsDate = dateIdx >= 0 ? (latest[0]?.[dateIdx] ?? maxWeek) : maxWeek;
@@ -479,8 +505,11 @@ async function fetchUK_ModeA() {
     const stations = body?.stations ?? body?.data ?? [];
     if (!Array.isArray(stations)) continue;
     if (body.last_updated) {
-      const d = body.last_updated.slice(0, 10);
-      if (d > observedAt) observedAt = d; // keep the latest date across all retailers
+      // CMA feeds use "DD/MM/YYYY HH:mm:ss" — convert to ISO YYYY-MM-DD for comparison
+      const raw = String(body.last_updated);
+      const ddmmyyyy = raw.match(/^(\d{2})\/(\d{2})\/(\d{4})/);
+      const iso = ddmmyyyy ? `${ddmmyyyy[3]}-${ddmmyyyy[2]}-${ddmmyyyy[1]}` : raw.slice(0, 10);
+      if (iso > observedAt) observedAt = iso;
     }
     for (const s of stations) {
       const prices = s?.prices ?? s?.fuel_prices ?? {};
