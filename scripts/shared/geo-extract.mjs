@@ -73,6 +73,7 @@ const ALIAS_MAP = {
 // These fire too often as false positives when matched as bare words.
 // Bigram aliases (e.g. 'south africa') still work; only bare single-word matches are blocked.
 const UNIGRAM_STOPWORDS = new Set([
+  'us',      // English pronoun fires on nearly every headline; 'american'/'washington' aliases cover US
   'chad',    // common English given name
   'jordan',  // common English given name + US-adjacent context
   'georgia', // US state
