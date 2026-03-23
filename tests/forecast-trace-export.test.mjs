@@ -36,6 +36,9 @@ import {
   validateImpactHypotheses,
   evaluateDeepForecastPaths,
   validateDeepForecastSnapshot,
+  buildRegistryConstraintTable,
+  IMPACT_VARIABLE_REGISTRY,
+  MARKET_BUCKET_ALLOWED_CHANNELS,
 } from '../scripts/seed-forecasts.mjs';
 
 import {
@@ -3962,6 +3965,167 @@ describe('impact expansion layer', () => {
     assert.equal(worldState.simulationState.expandedSignalUsageByRound.round_1.mappedCount, 1);
     assert.equal(worldState.simulationState.expandedSignalUsageByRound.round_2.mappedCount, 2);
     assert.equal(worldState.simulationState.expandedSignalUsageByRound.round_3.mappedCount, 2);
+  });
+
+  it('evaluateDeepForecastPaths includes validation on the mapped=0 early-return path', async () => {
+    const candidatePacket = makeImpactCandidatePacket('state-a1', 'Test maritime disruption state');
+    const invalidBundle = {
+      source: 'live',
+      provider: 'test',
+      model: 'test-model',
+      parseStage: 'object_candidates',
+      rawPreview: '',
+      failureReason: '',
+      candidateCount: 1,
+      extractedCandidateCount: 1,
+      extractedHypothesisCount: 1,
+      candidates: [],
+      candidatePackets: [candidatePacket],
+      extractedCandidates: [{
+        candidateIndex: 0,
+        candidateStateId: 'state-a1',
+        directHypotheses: [{
+          variableKey: 'route_disruption',
+          channel: 'sovereign_stress',
+          targetBucket: 'sovereign_risk',
+          region: 'Middle East',
+          macroRegion: 'EMEA',
+          countries: ['Qatar'],
+          assetsOrSectors: [],
+          commodity: '',
+          dependsOnKey: '',
+          strength: 0.8,
+          confidence: 0.8,
+          analogTag: '',
+          summary: 'Invalid channel for route_disruption.',
+          evidenceRefs: ['E1', 'E2'],
+        }],
+        secondOrderHypotheses: [],
+        thirdOrderHypotheses: [],
+      }],
+    };
+    const evaluation = await evaluateDeepForecastPaths({
+      generatedAt: Date.now(),
+      predictions: [],
+      fullRunStateUnits: [{ id: 'state-a1', label: 'Test maritime disruption state' }],
+    }, null, invalidBundle.candidatePackets, invalidBundle);
+
+    assert.equal(evaluation.status, 'completed_no_material_change');
+    assert.ok(evaluation.validation, 'validation must be present on mapped=0 path');
+    assert.equal((evaluation.validation.mapped || []).length, 0);
+    assert.ok(evaluation.validation.rejectionReasonCounts.unsupported_variable_channel >= 1);
+    assert.ok(evaluation.validation.hypotheses.every((h) => typeof h.candidateIndex === 'number' && typeof h.candidateStateId === 'string'));
+  });
+
+  it('evaluateDeepForecastPaths includes validation on the no-expanded-accepted path', async () => {
+    const prediction = makePrediction('supply_chain', 'Red Sea', 'Shipping disruption: Red Sea', 0.68, 0.6, '7d', [
+      { type: 'shipping_cost_shock', value: 'Shipping costs rising around Red Sea.', weight: 0.5 },
+    ]);
+    buildForecastCase(prediction);
+    populateFallbackNarratives([prediction]);
+    const baseState = buildForecastRunWorldState({ generatedAt: Date.parse('2026-03-23T12:00:00Z'), predictions: [prediction] });
+    const stateUnit = baseState.stateUnits[0];
+    const bundle = makeImpactExpansionBundle(stateUnit.id, stateUnit.label, {
+      dominantRegion: stateUnit.dominantRegion || 'Red Sea',
+      macroRegions: stateUnit.macroRegions || ['EMEA'],
+      countries: stateUnit.regions || ['Red Sea'],
+      marketBucketIds: stateUnit.marketBucketIds || ['energy', 'freight', 'rates_inflation'],
+      transmissionChannels: stateUnit.transmissionChannels || ['shipping_cost_shock', 'gas_supply_stress'],
+    });
+    const evaluation = await evaluateDeepForecastPaths({
+      generatedAt: Date.parse('2026-03-23T12:00:00Z'),
+      predictions: [prediction],
+      fullRunStateUnits: baseState.stateUnits,
+    }, null, bundle.candidatePackets, bundle);
+
+    assert.ok(evaluation.validation, 'validation must be present on no-expanded-accepted path');
+    assert.ok(Array.isArray(evaluation.validation.hypotheses));
+    assert.ok(evaluation.validation.hypotheses.every((h) => typeof h.candidateIndex === 'number' && typeof h.candidateStateId === 'string'));
+  });
+
+  it('buildForecastTraceArtifacts surfaces hypothesisValidation in impactExpansionDebug', () => {
+    const candidatePacket = makeImpactCandidatePacket('state-b', 'Strait of Hormuz maritime disruption state');
+    const bundle = makeImpactExpansionBundle('state-b', 'Strait of Hormuz maritime disruption state');
+    const rawValidation = validateImpactHypotheses(bundle);
+
+    const invalidHypothesis = {
+      variableKey: 'route_disruption',
+      channel: 'sovereign_stress',
+      targetBucket: 'sovereign_risk',
+      region: 'Middle East',
+      macroRegion: 'EMEA',
+      countries: [],
+      assetsOrSectors: [],
+      commodity: '',
+      dependsOnKey: '',
+      strength: 0.7,
+      confidence: 0.7,
+      analogTag: '',
+      summary: 'Invalid.',
+      evidenceRefs: ['E1', 'E2'],
+      candidateIndex: 0,
+      candidateStateId: 'state-b',
+      candidateStateLabel: 'Strait of Hormuz maritime disruption state',
+      order: 'direct',
+      rejectionReason: 'unsupported_variable_channel',
+    };
+    const validationWithRejection = {
+      ...rawValidation,
+      hypotheses: [...rawValidation.hypotheses, invalidHypothesis],
+      rejectionReasonCounts: { ...rawValidation.rejectionReasonCounts, unsupported_variable_channel: 1 },
+    };
+
+    const artifacts = buildForecastTraceArtifacts({
+      generatedAt: Date.parse('2026-03-24T12:00:00Z'),
+      predictions: [],
+      impactExpansionBundle: bundle,
+      impactExpansionCandidates: [candidatePacket],
+      deepPathEvaluation: {
+        status: 'completed_no_material_change',
+        selectedPaths: [],
+        rejectedPaths: [],
+        impactExpansionBundle: bundle,
+        deepWorldState: null,
+        validation: validationWithRejection,
+      },
+    }, { runId: 'test-debug-b' });
+
+    assert.ok(artifacts.impactExpansionDebug, 'impactExpansionDebug must be present');
+    assert.ok(artifacts.impactExpansionDebug.hypothesisValidation, 'hypothesisValidation must be present');
+    assert.ok(typeof artifacts.impactExpansionDebug.hypothesisValidation.totalHypotheses === 'number');
+    assert.ok(typeof artifacts.impactExpansionDebug.hypothesisValidation.validatedCount === 'number');
+    assert.ok(typeof artifacts.impactExpansionDebug.hypothesisValidation.mappedCount === 'number');
+    assert.ok(typeof artifacts.impactExpansionDebug.hypothesisValidation.rejectionReasonCounts === 'object');
+    assert.ok(artifacts.impactExpansionDebug.hypothesisValidation.rejectionReasonCounts.unsupported_variable_channel >= 1);
+    const rejected = artifacts.impactExpansionDebug.hypothesisValidation.rejectedHypotheses;
+    assert.ok(Array.isArray(rejected));
+    assert.ok(rejected.length >= 1);
+    assert.ok(typeof rejected[0].candidateIndex === 'number');
+    assert.ok(typeof rejected[0].candidateStateId === 'string');
+    assert.ok(typeof rejected[0].variableKey === 'string');
+    assert.ok(typeof rejected[0].rejectionReason === 'string');
+  });
+
+  it('buildRegistryConstraintTable output matches IMPACT_VARIABLE_REGISTRY and MARKET_BUCKET_ALLOWED_CHANNELS', () => {
+    const table = buildRegistryConstraintTable();
+    for (const [key, spec] of Object.entries(IMPACT_VARIABLE_REGISTRY)) {
+      assert.ok(table.includes(key), `table must mention variableKey ${key}`);
+      for (const channel of spec.allowedChannels || []) {
+        assert.ok(table.includes(channel), `table must mention channel ${channel} for ${key}`);
+      }
+      for (const bucket of spec.targetBuckets || []) {
+        assert.ok(table.includes(bucket), `table must mention bucket ${bucket} for ${key}`);
+      }
+      for (const order of spec.orderAllowed || []) {
+        assert.ok(table.includes(order), `table must mention order ${order} for ${key}`);
+      }
+    }
+    for (const [bucket, channels] of Object.entries(MARKET_BUCKET_ALLOWED_CHANNELS)) {
+      assert.ok(table.includes(bucket), `table must mention bucket ${bucket}`);
+      for (const ch of channels) {
+        assert.ok(table.includes(ch), `table must mention channel ${ch} for bucket ${bucket}`);
+      }
+    }
   });
 });
 

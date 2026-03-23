@@ -371,7 +371,7 @@ const FORECAST_DOMAINS = [
   'infrastructure',
 ];
 const MARKET_CLUSTER_DOMAINS = new Set(['market', 'supply_chain']);
-const IMPACT_EXPANSION_REGISTRY_VERSION = 'v1';
+const IMPACT_EXPANSION_REGISTRY_VERSION = 'v2';
 const IMPACT_EXPANSION_MAX_CANDIDATES = 6;
 const IMPACT_EXPANSION_CACHE_TTL_SECONDS = 30 * 60;
 const IMPACT_EXPANSION_ORDERS = ['direct', 'second_order', 'third_order'];
@@ -2228,6 +2228,19 @@ const CRITICAL_SIGNAL_LLM_MAX_ITEMS = 8;
 const CRITICAL_SIGNAL_CACHE_TTL_SECONDS = 20 * 60;
 const IMPACT_EXPANSION_SOURCE_TYPE = 'impact_expansion';
 
+function buildRegistryConstraintTable() {
+  const varLines = Object.entries(IMPACT_VARIABLE_REGISTRY).map(([key, spec]) => {
+    const channels = (spec.allowedChannels || []).join(',');
+    const buckets = (spec.targetBuckets || []).join(',');
+    const orders = (spec.orderAllowed || []).join(',');
+    return `${key}: channels=[${channels}] buckets=[${buckets}] orders=[${orders}]`;
+  });
+  const bucketLines = Object.entries(MARKET_BUCKET_ALLOWED_CHANNELS).map(([bucket, channels]) => {
+    return `${bucket}: [${channels.join(',')}]`;
+  });
+  return `Variable constraints (each row: variableKey → allowed channels, targetBuckets, orderAllowed):\n${varLines.join('\n')}\n\nBucket-channel constraints (each targetBucket only accepts these channels):\n${bucketLines.join('\n')}`;
+}
+
 function buildImpactExpansionSystemPrompt() {
   return `You are a consequence-expansion engine for a state-based geopolitical and market simulation model.
 
@@ -2262,16 +2275,16 @@ ImpactHypothesis:
   "evidenceRefs": string[]
 }
 
+${buildRegistryConstraintTable()}
+
 Rules:
-- Use ONLY these variableKey values: ${IMPACT_VARIABLE_KEYS.join(', ')}.
-- Use ONLY these channel values: ${uniqueSortedStrings(IMPACT_VARIABLE_KEYS.flatMap((key) => IMPACT_VARIABLE_CHANNELS[key] || [])).join(', ')}.
-- Use ONLY these targetBucket values: ${[...IMPACT_EXPANSION_TARGET_BUCKETS].join(', ')}.
+- Each hypothesis must use a (variableKey, channel, targetBucket) triple that is VALID per the constraint table above. Both conditions must hold: (1) the channel must be in the variableKey's channels list, and (2) the targetBucket must accept that channel per the bucket-channel constraints.
+- Causal ordering: variables with orders=[direct,second_order] are root causes (shipping/energy disruptions). Variables with orders=[second_order,third_order] are downstream consequences. Example chain: route_disruption(direct,freight) → inflation_pass_through(second_order,rates_inflation) → sovereign_funding_stress(third_order,sovereign_risk).
+- direct hypotheses go in directHypotheses. second_order in secondOrderHypotheses. third_order in thirdOrderHypotheses. Match the orderAllowed for each variableKey.
+- dependsOnKey: for second_order, set to the variableKey of the direct hypothesis it causally follows. For third_order, set to the variableKey of the second_order hypothesis it follows. For direct, leave empty.
 - Use ONLY these analogTag values: ${IMPACT_EXPANSION_ANALOG_TAGS.join(', ')}.
 - Cite evidence ONLY with exact E# keys from the candidate packet.
 - Never invent events, routes, facilities, commodities, or countries beyond the candidate packet.
-- direct hypotheses are immediate consequences.
-- second_order hypotheses must depend on a direct hypothesis via dependsOnKey.
-- third_order hypotheses must depend on a second_order hypothesis via dependsOnKey.
 - Prefer omission over weak guesses.
 - Keep strength and confidence between 0 and 1.
 - Keep summaries concise and evidence-grounded.
@@ -4408,6 +4421,24 @@ function buildImpactExpansionDebugPayload(data = {}, worldState = null, runId = 
   const bundle = data?.impactExpansionBundle || null;
   const candidates = data?.impactExpansionCandidates || bundle?.candidatePackets || [];
   if (!bundle && (!Array.isArray(candidates) || candidates.length === 0)) return null;
+  const rawValidation = data?.deepPathEvaluation?.validation || null;
+  const hypothesisValidation = rawValidation ? {
+    totalHypotheses: (rawValidation.hypotheses || []).length,
+    validatedCount: (rawValidation.validated || []).length,
+    mappedCount: (rawValidation.mapped || []).length,
+    rejectionReasonCounts: rawValidation.rejectionReasonCounts || {},
+    rejectedHypotheses: (rawValidation.hypotheses || [])
+      .filter((item) => item.rejectionReason)
+      .map((item) => ({
+        candidateIndex: item.candidateIndex,
+        candidateStateId: item.candidateStateId,
+        variableKey: item.variableKey,
+        channel: item.channel,
+        targetBucket: item.targetBucket,
+        order: item.order,
+        rejectionReason: item.rejectionReason,
+      })),
+  } : null;
   return {
     runId,
     generatedAt: data?.generatedAt || Date.now(),
@@ -4417,6 +4448,7 @@ function buildImpactExpansionDebugPayload(data = {}, worldState = null, runId = 
     impactExpansionBundle: bundle,
     candidatePackets: candidates,
     impactExpansionSummary: worldState?.impactExpansion || null,
+    hypothesisValidation,
     selectedPaths: (data?.deepPathEvaluation?.selectedPaths || []).map(summarizeImpactPathScore).filter(Boolean),
     rejectedPaths: (data?.deepPathEvaluation?.rejectedPaths || []).map(summarizeImpactPathScore).filter(Boolean),
   };
@@ -10967,6 +10999,7 @@ async function evaluateDeepForecastPaths(snapshot, priorWorldState, candidatePac
       rejectedPaths: [],
       impactExpansionBundle: bundle,
       deepWorldState: null,
+      validation,
     };
   }
 
@@ -11016,6 +11049,7 @@ async function evaluateDeepForecastPaths(snapshot, priorWorldState, candidatePac
       rejectedPaths,
       impactExpansionBundle: bundle,
       deepWorldState: null,
+      validation,
     };
   }
 
@@ -11040,6 +11074,7 @@ async function evaluateDeepForecastPaths(snapshot, priorWorldState, candidatePac
     rejectedPaths,
     impactExpansionBundle: acceptedBundle,
     deepWorldState,
+    validation,
   };
 }
 
@@ -14405,6 +14440,8 @@ export {
   loadEntityGraph,
   discoverGraphCascades,
   MARITIME_REGIONS,
+  IMPACT_VARIABLE_REGISTRY,
+  MARKET_BUCKET_ALLOWED_CHANNELS,
   MARKET_TAG_TO_REGION,
   resolveCountryName,
   loadCountryCodes,
@@ -14418,6 +14455,7 @@ export {
   extractCriticalNewsSignals,
   selectImpactExpansionCandidates,
   selectDeepForecastCandidates,
+  buildRegistryConstraintTable,
   buildImpactExpansionCandidateHash,
   recoverImpactExpansionDrafts,
   extractImpactExpansionBundle,
