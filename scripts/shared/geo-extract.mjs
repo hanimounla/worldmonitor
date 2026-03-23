@@ -73,7 +73,6 @@ const ALIAS_MAP = {
 // These fire too often as false positives when matched as bare words.
 // Bigram aliases (e.g. 'south africa') still work; only bare single-word matches are blocked.
 const UNIGRAM_STOPWORDS = new Set([
-  'us',      // English pronoun fires on nearly every headline; 'american'/'washington' aliases cover US
   'chad',    // common English given name
   'jordan',  // common English given name + US-adjacent context
   'georgia', // US state
@@ -100,16 +99,27 @@ for (const [alias, iso2] of Object.entries(ALIAS_MAP)) {
  */
 export function extractCountryCode(text) {
   if (!text) return null;
-  const lower = text.toLowerCase();
+  // Normalize uppercase `US` (country abbreviation) to `united states` before lowercasing,
+  // so it survives the stopword pass. Lowercase `us` (pronoun) has no equivalent expansion
+  // and is stopped by UNIGRAM_STOPWORDS. `\b` avoids matching inside words like "plus".
+  const normalized = text.replace(/\bUS\b/g, 'United States');
+  const lower = normalized.toLowerCase();
 
-  // Try longest-match first (2-word then 1-word phrases)
+  // Single left-to-right scan with local longest-match priority:
+  // at each position try bigram first (strips punctuation so "West Bank," works),
+  // then fall back to unigram. This preserves document order so the first
+  // country mentioned in the headline wins regardless of alias length.
   const words = lower.split(/\s+/);
-  for (let i = 0; i < words.length - 1; i++) {
-    const bigram = `${words[i]} ${words[i + 1]}`;
-    if (LOOKUP[bigram] && LOOKUP[bigram] !== 'XX') return LOOKUP[bigram];
-  }
-  for (const word of words) {
-    const clean = word.replace(/[^a-z]/g, '');
+  for (let i = 0; i < words.length; i++) {
+    if (i < words.length - 1) {
+      const left = words[i].replace(/[^a-z]/g, '');
+      const right = words[i + 1].replace(/[^a-z]/g, '');
+      if (left && right) {
+        const bigram = `${left} ${right}`;
+        if (LOOKUP[bigram] && LOOKUP[bigram] !== 'XX') return LOOKUP[bigram];
+      }
+    }
+    const clean = words[i].replace(/[^a-z]/g, '');
     if (clean.length < 2) continue;
     if (UNIGRAM_STOPWORDS.has(clean)) continue;
     if (LOOKUP[clean] && LOOKUP[clean] !== 'XX') return LOOKUP[clean];
