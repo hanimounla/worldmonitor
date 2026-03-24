@@ -3949,7 +3949,7 @@ describe('impact expansion layer', () => {
     assert.equal(scoring.acceptanceScore, 0.636);
   });
 
-  it('keeps the base path when deep path evaluation cannot clear the acceptance floor', async () => {
+  it('accepts expanded path and builds deep world state when acceptance score clears 0.50 floor', async () => {
     const prediction = makePrediction('supply_chain', 'Red Sea', 'Shipping disruption: Strait of Hormuz', 0.68, 0.6, '7d', [
       { type: 'shipping_cost_shock', value: 'Shipping costs are rising around Strait of Hormuz rerouting.', weight: 0.5 },
       { type: 'energy_supply_shock', value: 'Energy transit pressure is building around Qatar LNG flows.', weight: 0.32 },
@@ -3981,13 +3981,12 @@ describe('impact expansion layer', () => {
       inputs: {},
     }, null, bundle.candidatePackets, bundle);
 
-    assert.equal(evaluation.status, 'completed_no_material_change');
-    assert.equal(evaluation.selectedPaths.length, 1);
-    assert.equal(evaluation.selectedPaths[0].type, 'base');
-    assert.equal(evaluation.rejectedPaths.length, 1);
-    assert.equal(evaluation.rejectedPaths[0].type, 'expanded');
-    assert.ok(evaluation.rejectedPaths[0].acceptanceScore < 0.6);
-    assert.equal(evaluation.deepWorldState, null);
+    assert.equal(evaluation.status, 'completed',
+      'strong hypotheses (strength=0.95/0.92) should clear the 0.50 acceptance floor');
+    assert.ok(evaluation.selectedPaths.length > 0);
+    const acceptedExpanded = evaluation.selectedPaths.filter((p) => p.type === 'expanded');
+    assert.ok(acceptedExpanded.length > 0, 'at least one expanded path must be selected');
+    assert.ok(evaluation.deepWorldState != null, 'deep world state must be built when expanded path accepted');
   });
 
   it('threads mapped expansion signals into simulation rounds without mutating observed world signals', () => {
@@ -5193,7 +5192,7 @@ describe('phase 2 scoring recalibration + prompt excellence', () => {
     assert.equal(gd.secondOrderMappedFloor, 0.58);
     assert.equal(gd.secondOrderMultiplier, 0.88);
     assert.equal(gd.pathScoreThreshold, 0.50);
-    assert.equal(gd.acceptanceThreshold, 0.60);
+    assert.equal(gd.acceptanceThreshold, 0.50);
   });
 
   it('T7: prompt v3 contains all required guidance strings', () => {

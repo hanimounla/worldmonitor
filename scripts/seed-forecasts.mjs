@@ -4495,7 +4495,7 @@ function buildImpactExpansionDebugPayload(data = {}, worldState = null, runId = 
       secondOrderMappedFloor: 0.58,
       secondOrderMultiplier: 0.88,
       pathScoreThreshold: 0.50,
-      acceptanceThreshold: 0.60,
+      acceptanceThreshold: 0.50,
     },
     selectedPaths: (data?.deepPathEvaluation?.selectedPaths || []).map(summarizeImpactPathScore).filter(Boolean),
     rejectedPaths: (data?.deepPathEvaluation?.rejectedPaths || []).map(summarizeImpactPathScore).filter(Boolean),
@@ -11117,7 +11117,7 @@ async function evaluateDeepForecastPaths(snapshot, priorWorldState, candidatePac
       });
     }
     evaluated.sort((a, b) => b.acceptanceScore - a.acceptanceScore || b.pathScore - a.pathScore || a.pathId.localeCompare(b.pathId));
-    const accepted = evaluated.find((item) => item.acceptanceScore >= 0.6) || null;
+    const accepted = evaluated.find((item) => item.acceptanceScore >= 0.50) || null;
     if (accepted) {
       selectedPaths.push(accepted);
       rejectedPaths.push(...evaluated.filter((item) => item.pathId !== accepted.pathId));
