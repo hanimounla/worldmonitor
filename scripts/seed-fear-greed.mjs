@@ -234,7 +234,7 @@ function scoreCategory(name, inputs) {
       const hasAd = advDecRatio != null;
       const w = hasAd ? [0.4, 0.3, 0.3] : [0.57, 0, 0.43];
       const score = breadthScore * w[0] + adScore * w[1] + rspScore * w[2];
-      return { score: Math.round(clamp(score, 0, 100)), inputs: { pctAbove200d: mmthPrice, rspSpyRatio: rspRoc, advDecRatio: advDecRatio ?? null } };
+      return { score: Math.round(clamp(score, 0, 100)), degraded: mmthPrice == null, inputs: { pctAbove200d: mmthPrice, rspSpyRatio: rspRoc, advDecRatio: advDecRatio ?? null } };
     }
     case 'momentum': {
       const { spxCloses, sectorCloses } = inputs;
@@ -373,7 +373,7 @@ async function fetchAll() {
       volatility:  { score: cats.volatility.score, weight: WEIGHTS.volatility, contribution: Math.round(cats.volatility.score * WEIGHTS.volatility * 10)/10, inputs: cats.volatility.inputs },
       positioning: { score: cats.positioning.score, weight: WEIGHTS.positioning, contribution: Math.round(cats.positioning.score * WEIGHTS.positioning * 10)/10, inputs: cats.positioning.inputs },
       trend:       { score: cats.trend.score, weight: WEIGHTS.trend, contribution: Math.round(cats.trend.score * WEIGHTS.trend * 10)/10, inputs: cats.trend.inputs },
-      breadth:     { score: cats.breadth.score, weight: WEIGHTS.breadth, contribution: Math.round(cats.breadth.score * WEIGHTS.breadth * 10)/10, inputs: cats.breadth.inputs },
+      breadth:     { score: cats.breadth.score, weight: WEIGHTS.breadth, contribution: Math.round(cats.breadth.score * WEIGHTS.breadth * 10)/10, inputs: cats.breadth.inputs, degraded: cats.breadth.degraded ?? false },
       momentum:    { score: cats.momentum.score, weight: WEIGHTS.momentum, contribution: Math.round(cats.momentum.score * WEIGHTS.momentum * 10)/10, inputs: cats.momentum.inputs },
       liquidity:   { score: cats.liquidity.score, weight: WEIGHTS.liquidity, contribution: Math.round(cats.liquidity.score * WEIGHTS.liquidity * 10)/10, inputs: cats.liquidity.inputs },
       credit:      { score: cats.credit.score, weight: WEIGHTS.credit, contribution: Math.round(cats.credit.score * WEIGHTS.credit * 10)/10, inputs: cats.credit.inputs },
